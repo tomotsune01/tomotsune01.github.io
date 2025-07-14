@@ -235,3 +235,307 @@
             margin-top: 1rem;
             text-align: center;
         }
+        
+        .auto-refresh-text {
+            font-size: 0.75rem;
+            color: #9ca3af;
+        }
+        
+        .loading {
+            animation: spin 1s linear infinite;
+        }
+        
+        .debug-info {
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-size: 0.75rem;
+            color: #6b7280;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <div class="icon">💻</div>
+                <h1 class="title">ChatGPT-Proプラン利用状況</h1>
+                <p class="subtitle">チーム共有ツールの利用管理</p>
+                <button class="refresh-btn" onclick="fetchStatus()">
+                    🔄 更新
+                </button>
+            </div>
+
+            <div id="error-message" class="error" style="display: none;"></div>
+
+            <div id="status-card" class="status-card available">
+                <div id="status-icon" class="status-icon available">✓</div>
+                <div id="status-text" class="status-text available">利用可能</div>
+                <div class="last-updated">
+                    🕐 最終更新: <span id="last-updated-time">--:--</span>
+                </div>
+            </div>
+
+            <div id="action-section">
+                <div id="start-form" class="form-group">
+                    <label class="label">利用者名</label>
+                    <input type="text" id="user-name" class="input" placeholder="あなたの名前を入力してください">
+                </div>
+                <button id="start-btn" class="btn btn-primary" onclick="handleStartUsage()">
+                    💻 利用開始
+                </button>
+                
+                <button id="end-btn" class="btn btn-secondary" onclick="handleEndUsage()" style="display: none;">
+                    ✓ 利用終了
+                </button>
+            </div>
+
+            <div class="info-card">
+                <p id="info-text" class="info-text">
+                    ChatGPT-Proプランは現在利用可能です
+                </p>
+            </div>
+
+            <div class="auto-refresh">
+                <p class="auto-refresh-text">30秒ごとに自動更新されます</p>
+            </div>
+            
+            <div id="debug-info" class="debug-info" style="display: none;">
+                <strong>デバッグ情報:</strong><br>
+                <span id="debug-text"></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 状態管理
+        let isInUse = false;
+        let currentUser = '';
+        let isLoading = false;
+        
+        // Google Apps Script URL - ★あなたのURLに書き換える必要あり
+        const API_URL = 'https://script.google.com/a/macros/kakaku.com/s/AKfycbxfNm6JdzJCfy_Z6cvmRM-vi9vw2bQHeo9qdIOxUShQq_D0_hxNrT2KS4cf7rGRJtAm/exec';
+        
+        // DOM要素の取得
+        const statusCard = document.getElementById('status-card');
+        const statusIcon = document.getElementById('status-icon');
+        const statusText = document.getElementById('status-text');
+        const lastUpdatedTime = document.getElementById('last-updated-time');
+        const errorMessage = document.getElementById('error-message');
+        const userNameInput = document.getElementById('user-name');
+        const startForm = document.getElementById('start-form');
+        const startBtn = document.getElementById('start-btn');
+        const endBtn = document.getElementById('end-btn');
+        const infoText = document.getElementById('info-text');
+        const debugInfo = document.getElementById('debug-info');
+        const debugText = document.getElementById('debug-text');
+        
+        // デバッグ情報を表示
+        function showDebugInfo(info) {
+            debugText.textContent = info;
+            debugInfo.style.display = 'block';
+            setTimeout(() => {
+                debugInfo.style.display = 'none';
+            }, 10000);
+        }
+        
+        // 時間フォーマット
+        function formatTime(date) {
+            return date.toLocaleTimeString('ja-JP', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+        }
+        
+        // エラー表示
+        function showError(message, details = null) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            
+            if (details) {
+                console.error('Error details:', details);
+                showDebugInfo(`エラー詳細: ${JSON.stringify(details)}`);
+            }
+            
+            setTimeout(() => {
+                errorMessage.style.display = 'none';
+            }, 5000);
+        }
+        
+        // UI更新
+        function updateUI() {
+            if (isInUse) {
+                // 利用中の状態
+                statusCard.className = 'status-card in-use';
+                statusIcon.className = 'status-icon in-use';
+                statusIcon.textContent = '👥';
+                statusText.className = 'status-text in-use';
+                statusText.textContent = `利用中（${currentUser}）`;
+                
+                startForm.style.display = 'none';
+                startBtn.style.display = 'none';
+                endBtn.style.display = 'block';
+                
+                infoText.textContent = `${currentUser}さんが利用中です。他のメンバーは利用をお待ちください`;
+            } else {
+                // 利用可能の状態
+                statusCard.className = 'status-card available';
+                statusIcon.className = 'status-icon available';
+                statusIcon.textContent = '✓';
+                statusText.className = 'status-text available';
+                statusText.textContent = '利用可能';
+                
+                startForm.style.display = 'block';
+                startBtn.style.display = 'block';
+                endBtn.style.display = 'none';
+                
+                infoText.textContent = 'ChatGPT-Proプランは現在利用可能です';
+            }
+            
+            lastUpdatedTime.textContent = formatTime(new Date());
+        }
+        
+        // 現在の状態を取得
+        async function fetchStatus() {
+            try {
+                console.log('Fetching status from:', API_URL);
+                showDebugInfo(`API呼び出し中: ${API_URL}?action=get`);
+                
+                const response = await fetch(`${API_URL}?action=get`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (data.success === false) {
+                    throw new Error(data.message || 'APIエラー');
+                }
+                
+                if (data.status === '利用中') {
+                    isInUse = true;
+                    currentUser = data.user || '';
+                } else {
+                    isInUse = false;
+                    currentUser = '';
+                }
+                
+                updateUI();
+                showDebugInfo(`状態取得成功: ${data.status}`);
+            } catch (err) {
+                console.error('Error fetching status:', err);
+                showError('状態の取得に失敗しました', err.message);
+            }
+        }
+        
+        // 状態を更新
+        async function updateStatus(status, user = '') {
+            try {
+                isLoading = true;
+                startBtn.disabled = true;
+                endBtn.disabled = true;
+                
+                // ローディング表示
+                if (status === '利用中') {
+                    startBtn.innerHTML = '🔄 更新中...';
+                } else {
+                    endBtn.innerHTML = '🔄 更新中...';
+                }
+                
+                const url = `${API_URL}?action=update&status=${encodeURIComponent(status)}&user=${encodeURIComponent(user)}`;
+                console.log('Updating status:', url);
+                showDebugInfo(`状態更新中: ${status} (${user})`);
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Update response:', data);
+                
+                if (data.success) {
+                    if (status === '利用中') {
+                        isInUse = true;
+                        currentUser = user;
+                    } else {
+                        isInUse = false;
+                        currentUser = '';
+                        userNameInput.value = '';
+                    }
+                    updateUI();
+                    showDebugInfo(`状態更新成功: ${status}`);
+                } else {
+                    throw new Error(data.message || '状態の更新に失敗しました');
+                }
+            } catch (err) {
+                console.error('Error updating status:', err);
+                showError('状態の更新に失敗しました', err.message);
+            } finally {
+                isLoading = false;
+                startBtn.disabled = false;
+                endBtn.disabled = false;
+                startBtn.innerHTML = '💻 利用開始';
+                endBtn.innerHTML = '✓ 利用終了';
+            }
+        }
+        
+        // 利用開始
+        function handleStartUsage() {
+            const userName = userNameInput.value.trim();
+            if (userName) {
+                updateStatus('利用中', userName);
+            } else {
+                showError('利用者名を入力してください');
+            }
+        }
+        
+        // 利用終了
+        function handleEndUsage() {
+            updateStatus('利用可能', '');
+        }
+        
+        // 入力フィールドでEnterキーが押された時の処理
+        userNameInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                handleStartUsage();
+            }
+        });
+        
+        // 利用者名の入力に応じてボタンの有効/無効を切り替え
+        userNameInput.addEventListener('input', function() {
+            startBtn.disabled = !userNameInput.value.trim() || isLoading;
+        });
+        
+        // 初期化
+        console.log('Initializing app with API URL:', API_URL);
+        fetchStatus();
+        
+        // 定期的に状態を確認（30秒ごと）
+        setInterval(fetchStatus, 30000);
+    </script>
+</body>
+</html>
