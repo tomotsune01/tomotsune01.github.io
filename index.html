@@ -408,15 +408,9 @@
                 console.log('Fetching status from:', API_URL);
                 showDebugInfo(`API呼び出し中: ${API_URL}?action=get`);
                 
-                const response = await fetch(`${API_URL}?action=get`, {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
-                });
+                const response = await fetch(`${API_URL}?action=get`); // ★★★ 修正点 ★★★
                 
                 console.log('Response status:', response.status);
-                console.log('Response headers:', response.headers);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -463,12 +457,7 @@
                 console.log('Updating status:', url);
                 showDebugInfo(`状態更新中: ${status} (${user})`);
                 
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
-                });
+                const response = await fetch(url); // ★★★ 修正点 ★★★
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
